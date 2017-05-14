@@ -6,7 +6,7 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const PORT = process.env.PORT || 3000;
 const app = express();
-const conString = '';// TODO: Don't forget to set your own conString
+const conString = 'postgres://postgres:miyagi@localhost:5432/simpsons';// DONE: Don't forget to set your own conString
 const client = new pg.Client(conString);
 client.connect();
 client.on('error', function(error) {
@@ -20,21 +20,22 @@ app.use(express.static('./public'));
 // These two routes are for retrieving HTML files for display in the browser
 
 app.get('/', function(request, response) {
-  response.sendFile('index.html', {root: '.'});
+  response.sendFile('index.html', {root: './public'});
 });
 
 app.get('/new', function(request, response) {
-  response.sendFile('new.html', {root: '.'});
+  response.sendFile('new.html', {root: './public'});
 });
 
 // Routes for making API calls to enact CRUD operations on our database
 
 app.get('/articles', function(request, response) {
   // REVIEW: This query will join the data together from our tables
-  // TODO: Write a SQL query which joins all data from articles and authors tables on the author_id value of each
-  client.query(`SELECT
-                (join somehow)
-                ON (some other crap here)`)
+  // DONE: Write a SQL query which joins all data from articles and authors tables on the author_id value of each
+  client.query(`SELECT *
+                FROM articles
+                INNER JOIN authors
+                ON articles.author_id = authors.author_id`)
   .then(function(result) {
     response.send(result.rows);
   })
@@ -45,17 +46,37 @@ app.get('/articles', function(request, response) {
 
 app.post('/articles', function(request, response) {
   client.query(
-  // TODO: Write a SQL query to insert a new ***author***, ON CONFLICT DO NOTHING
-  // TODO: Add author and "authorUrl" as data for the SQL query to interpolate
-    'Thing1',
-    [Thing2]
+  // DONE: Write a SQL query to insert a new ***author***, ON CONFLICT DO NOTHING
+    `INSERT INTO authors (author, authorUrl)
+    VALUES ($1, $2) ON CONFLICT DO NOTHING
+    `,
+  // DONE: Add author and "authorUrl" as data for the SQL query to interpolate
+    [
+      request.body.author,
+      request.body.authorUrl
+    ]
   )
   .then(function() {
-    // TODO: Write a SQL query to insert a new ***article***, using a sub-query to retrieve the author_id from the authors table
-    // TODO: Add the required values from the request as data for the SQL query to interpolate
+    // DONE: Write a SQL query to insert a new ***article***, using a sub-query to retrieve the author_id from the authors table
     client.query(
-      `Thing1`,
-      [Thing2]
+      `INSERT INTO articles (author_id, title, category, publishedOn, body)
+      VALUES (
+        (
+          SELECT author_id
+          FROM authors
+          WHERE authors.author = $1
+        ),
+        $2, $3, $4, $5)
+        ON CONFLICT DO NOTHING
+      `,
+    // DONE: Add the required values from the request as data for the SQL query to interpolate
+      [
+        request.body.author,
+        request.body.title,
+        request.body.category,
+        request.body.publishedOn, // QUESTION: shouldn't this be today's date?
+        request.body.body
+      ]
     )
   })
   .then(function() {
@@ -68,17 +89,39 @@ app.post('/articles', function(request, response) {
 
 app.put('/articles/:id', function(request, response) {
   client.query(
-  // TODO: Write a SQL query to update an ***author*** record
-  // TODO: Add the required values from the request as data for the SQL query to interpolate
-    `Thing1`,
-    [Thing2]
+  // DONE: Write a SQL query to update an ***author*** record
+    `UPDATE authors
+    SET author = $1,
+      authorUrl = $2
+    WHERE author_id = $3
+    `,
+  // DONE: Add the required values from the request as data for the SQL query to interpolate
+    [
+      request.body.author,
+      request.body.authorUrl,
+      request.body.author_id
+    ]
   )
   .then(function() {
-    // TODO: Write a SQL query to update an **article*** record
-    // TODO: Add the required values from the request as data for the SQL query to interpolate
     client.query(
-      `Thing1`,
-      [Thing2]
+    // DONE: Write a SQL query to update an **article*** record
+      `UPDATE articles
+      SET author_id = $1,
+        title = $2,
+        category = $3,
+        publishedOn = $4,
+        body = $5
+      WHERE article_id = $6
+      `,
+    // DONE: Add the required values from the request as data for the SQL query to interpolate
+      [
+        request.body.author_id,
+        request.body.title,
+        request.body.category,
+        request.body.publishedOn,
+        request.body.body,
+        request.params.id
+      ]
     )
   })
   .then(function() {
@@ -126,7 +169,7 @@ function loadAuthors() {
   fs.readFile('./public/data/hackerIpsum.json', function(err, fd) {
     JSON.parse(fd.toString()).forEach(function(ele) {
       client.query(
-        'INSERT INTO authors(author, "authorUrl") VALUES($1, $2) ON CONFLICT DO NOTHING',
+        'INSERT INTO authors(author, authorUrl) VALUES($1, $2) ON CONFLICT DO NOTHING',
         [ele.author, ele.authorUrl]
       )
     })
@@ -142,7 +185,7 @@ function loadArticles() {
         JSON.parse(fd.toString()).forEach(function(ele) {
           client.query(`
             INSERT INTO
-            articles(author_id, title, category, "publishedOn", body)
+            articles(author_id, title, category, publishedOn, body)
             SELECT author_id, $1, $2, $3, $4
             FROM authors
             WHERE author=$5;
@@ -165,7 +208,7 @@ function loadDB() {
     authors (
       author_id SERIAL PRIMARY KEY,
       author VARCHAR(255) UNIQUE NOT NULL,
-      "authorUrl" VARCHAR (255)
+      authorUrl VARCHAR (255)
     );`
   )
   .then(function(data) {
@@ -182,7 +225,7 @@ function loadDB() {
       author_id INTEGER NOT NULL REFERENCES authors(author_id),
       title VARCHAR(255) NOT NULL,
       category VARCHAR(20),
-      "publishedOn" DATE,
+      publishedOn DATE,
       body TEXT NOT NULL
     );`
   )
@@ -193,3 +236,14 @@ function loadDB() {
     console.error(err)
   });
 }
+
+
+// testing
+// var newarticle4 = new Article ({
+//   title: 'my new title',
+//   author: 'christy_la_guardia',
+//   authorUrl: 'www.christy.com',
+//   category: 'the things',
+//   publishedOn: '2017-05-14',
+//   body: 'wagowjg woigjwg ewkwogij rwhjwogiw jro'
+// });
